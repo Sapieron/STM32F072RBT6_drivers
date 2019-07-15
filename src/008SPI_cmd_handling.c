@@ -1,7 +1,7 @@
 /*
- * 007SPI_txonly_arduino.c
+ * 008SPI_cmd_handling.c
  *
- *  Created on: 03.06.2019
+ *  Created on: 09.07.2019
  *      Author: Pawel
  */
 
@@ -11,7 +11,7 @@
 #include "string.h"
 #include "stm32f072Tx_spi_driver.h"
 #include "stm32f072Tx_gpio_driver.h"
-
+#include <stdio.h>
 
 
 /*
@@ -22,6 +22,28 @@
  *
  * AF0
  */
+
+/*
+ * Command Codes for arduino slave
+ */
+
+#define COMMAND_LED_CTRL          0x50
+#define COMMAND_SENSOR_READ       0x51
+#define COMMAND_LED_READ          0x52
+#define COMMAND_PRINT         	  0x53
+#define COMMAND_ID_READ       	  0x54
+
+
+#define LED_PIN					9
+#define LED_ON  		  		 1
+#define LED_OFF 				   0
+
+//arduino analog pins
+#define ANALOG_PIN0			   0
+#define ANALOG_PIN1	   			1
+#define ANALOG_PIN2  			 2
+#define ANALOG_PIN3  			 3
+#define ANALOG_PIN4   			4
 
 
 
@@ -58,8 +80,8 @@ void SPI1_GPIO_Init()
 	GPIO_Init(&SPIPins);
 
 	//MISO pin config
-	//SPIPins.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO;
-	//GPIO_Init(&SPIPins);
+	SPIPins.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO4;
+	GPIO_Init(&SPIPins);
 
 	//MOSI pin config
 	SPIPins.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO5;
@@ -72,12 +94,12 @@ void SPI1_Init()
 
 	SPIhandle.pSPIx = SPI1;
 	SPIhandle.SPIConfig.SPI_BusConfig = SPI_BUS_CONFIG_FULLDUPLEX;
-	SPIhandle.SPIConfig.SPI_DSIZE = 0;								// TODO wczeœniej by³o SPI_DSIZE_8BITS
+	SPIhandle.SPIConfig.SPI_DSIZE = SPI_DSIZE_8BITS;
 	SPIhandle.SPIConfig.SPI_DeviceMode = SPI_DEVICE_MODE_MASTER;
 	SPIhandle.SPIConfig.SPI_SclkSpeed = SPI_SCLK_SPEED_DIV4;
 	SPIhandle.SPIConfig.SPI_CPOL = SPI_CPOL_LOW;
 	SPIhandle.SPIConfig.SPI_CPHA = SPI_CPHA_LOW;
-	SPIhandle.SPIConfig.SPI_SSM = SPI_SSM_EN;				//Hardware slave management
+	SPIhandle.SPIConfig.SPI_SSM = SPI_SSM_EN;				//Software slave management
 
 
 	SPI_Init(&SPIhandle);
@@ -105,11 +127,14 @@ void delay()
 }
 
 
-char data_string[] = "Chwalmy papieza polaka";
-
-
 int main(void)
 {
+	uint8_t dummyWrite = 0xff;
+	uint8_t dummyRead;
+	uint8_t ackByte = 0x00;
+	uint8_t args[2];
+	uint8_t dataRead = 0;
+
 	SPI1_GPIO_Init();
 
 	GPIO_ButtonInit();
@@ -118,11 +143,12 @@ int main(void)
 
 	SPI_SSOEControl(SPI1, ENABLE);
 
-
+	SPI_PeriphControl(SPI1, ENABLE);
 
 	while(1)
 	{
 
+		uint8_t command = COMMAND_LED_CTRL;
 
 		while( ! GPIO_ReadFromInputPin(GPIOA,GPIO_PIN_NO0));
 
@@ -130,16 +156,74 @@ int main(void)
 
 		SPI_PeriphControl(SPI1, ENABLE);
 
-		//Send the length of data to slave
-		uint8_t dataLength = strlen(data_string);
-		SPI_SendData(SPI1, &dataLength, 1);
 
 
-		SPI_SendData(SPI1, (uint8_t*)data_string, strlen(data_string));
 
-		while(SPI_GetFlag(SPI1, SPI_BUSY_FLAG));
+		//Send command to slave
+		SPI_SendData(SPI1, &command, 1);
 
-		SPI_PeriphControl(SPI1, DISABLE);
+		SPI_ReceiveData(SPI1, &dummyRead, 1);	//it must be done to clear the RXNE flag
+
+
+		//fetch acknowledged byte by sending dummy byte
+		SPI_SendData(SPI1, &dummyWrite, 1);
+		SPI_ReceiveData(SPI1, &ackByte, 1);
+
+
+
+		//check if the byte is ack or nack
+		if(SPI_VerifyResponse(ackByte))
+		{
+			args[0] = LED_PIN;
+			args[1] = LED_ON;
+
+			SPI_SendData(SPI1, args, 2);
+		}
+		//SPI_ReceiveData(SPI1, &dummyRead, 2);
+		//while(SPI_GetFlag(SPI1, SPI_BUSY_FLAG));
+
+		//SPI_PeriphControl(SPI1, DISABLE);
+
+		/*
+		 * Sensor read
+		 */
+		while( ! GPIO_ReadFromInputPin(GPIOA,GPIO_PIN_NO0));
+		delay();
+
+
+
+		command = COMMAND_SENSOR_READ;
+
+
+		//Send command to slave
+		SPI_SendData(SPI1, &command, 1);
+
+		SPI_ReceiveData(SPI1, &dummyRead, 1);	//it must be done to clear the RXNE flag
+
+
+		//fetch acknowledged byte by sending dummy byte
+		SPI_SendData(SPI1, &dummyWrite, 1);		//TODO tego ju¿ nie dostajê od slave'a - z debugera wynika, ¿e mi wisi flaga
+		SPI_ReceiveData(SPI1, &ackByte, 1);
+
+		if(SPI_VerifyResponse(ackByte))
+		{
+			args[0] = ANALOG_PIN0;
+
+			SPI_SendData(SPI1, args, 1);
+			SPI_ReceiveData(SPI1, &dummyRead, 1);
+
+			//ADC conversion may take a second, that's why small delay is needed
+
+			delay();
+
+			SPI_SendData(SPI1, &dummyWrite, 1);
+			SPI_ReceiveData(SPI1, &dataRead, 1);
+		}
+
+
+		//while(SPI_GetFlag(SPI1, SPI_BUSY_FLAG));
+
+		//SPI_PeriphControl(SPI1, DISABLE);
 	}
 
 	return 0;

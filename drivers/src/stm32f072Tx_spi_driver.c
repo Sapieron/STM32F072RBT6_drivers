@@ -9,6 +9,36 @@
 #include "stm32f072Tx_spi_driver.h"
 #include "stm32f072xx.h"
 
+
+/*
+ * helper functions
+ */
+
+
+void spi_txe_interrupt_handle(SPI_Handle_t *pSPIHandle)
+{
+	if(pSPIHandle->pSPIx->CR2 & (SPI_DSIZE_8BITS << SPI_CR2_DS))
+	{
+		*(uint8_t*)&pSPIHandle->pSPIx->DR |= *(uint8_t*)pSPIHandle->pTxBuffer;
+	}
+}
+
+
+
+void spi_rxne_interrupt_handle()
+{
+	//
+}
+
+
+
+void spi_ovr_err_interrupt_handle()
+{
+
+}
+
+
+
 /*
  * @fn 			- SPI_PeriClockControl
  *
@@ -281,10 +311,93 @@ void SPI_SendData(SPI_RegDef_t *pSPIx, volatile uint8_t *pTxBuffer, uint32_t Len
  *
  */
 
-void SPI_ReceiveData(SPI_RegDef_t *pSPIx, uint8_t *pRxBuffer, uint32_t Len)
+void SPI_ReceiveData(SPI_RegDef_t *pSPIx, volatile uint8_t *pRxBuffer, uint32_t Len)
 {
+	while(Len!=0)
+	{
+		while(SPI_GetFlag(pSPIx, SPI_RXNE_FLAG) == FLAG_SET);
 
+		if(pSPIx->CR2 & (SPI_DSIZE_8BITS << SPI_CR2_DS))
+		{
+			*pRxBuffer = *(volatile uint8_t *)&pSPIx->DR;
+			//pRxBuffer++;
+			--Len;
+		}
+	}
 }
+
+/*
+ * SPI Send Data - interrupt based
+ */
+
+uint8_t SPI_SendDataIT(SPI_Handle_t *pSPIHandle,uint8_t *pTxBuffer, uint32_t Len)
+{
+	uint8_t state = pSPIHandle->TxState;
+	if (state != SPI_BUSY_IN_TX)
+	{
+		//Save TX buffer and Len to global variables
+		pSPIHandle->pTxBuffer = pTxBuffer;
+		pSPIHandle->TxLen = Len;
+
+		//Mark SPI state as busy so no other code can take over SPI control until transmission is over
+		pSPIHandle->TxState = SPI_BUSY_IN_TX;
+
+		//Set TXEIE to high, so that TXE flag generates interrupt request
+		pSPIHandle->pSPIx->CR2 |= (SET << SPI_CR2_TXEIE);
+
+	}
+
+
+	return state;
+}
+
+
+/*
+ * SPI Receive data - interrupt based
+ */
+
+uint8_t SPI_ReceiveDataIT(SPI_Handle_t *pSPIHandle,uint8_t *pRxBuffer, uint32_t Len)
+{
+	uint8_t status = pSPIHandle->TxState;
+	if (status != SPI_BUSY_IN_RX)
+	{
+		pSPIHandle->pRxBuffer = pRxBuffer;
+		pSPIHandle->RxLen = Len;
+
+		pSPIHandle->RxState |= SPI_BUSY_IN_RX;
+
+		pSPIHandle->pSPIx->CR2 |= (SET << SPI_CR2_RXEIE);
+	}
+	return status;
+}
+
+/*
+ *@fn 			- SPI_VerifyResponse
+ *
+ * @brief		-
+ *
+ * @param[in]	-
+ * @param[in]	-
+ * @param[in]	-
+ *
+ * @return		-
+ *
+ * @Note
+ *
+ */
+
+
+
+
+uint8_t SPI_VerifyResponse(uint8_t ackByte)
+{
+	if(ackByte == 0xF5)
+		return 1;
+	else
+		return 0;
+}
+
+
 
 
 /*
@@ -302,9 +415,38 @@ void SPI_ReceiveData(SPI_RegDef_t *pSPIx, uint8_t *pRxBuffer, uint32_t Len)
  *
  */
 
-void SPI_IRQInterruptConfig(uint8_t IRQNumber, uint8_t EnOrDi)
+void SPI_IRQInterruptConfig(uint8_t IRQNumber, uint8_t EnorDi)
 {
-
+	if(EnorDi==ENABLE)
+		{
+			if(IRQNumber <= 31)
+			{
+				*(NVIC_ISER_0) |= (1 << IRQNumber );
+			}
+			else if(IRQNumber > 31 && IRQNumber <= 63)
+			{
+				//TODO - no need as in M0 architecture there are no more NVIC registers
+			}
+			else if(IRQNumber > 63 && IRQNumber <=95)
+			{
+				//TODO - no need as in M0 architecture there are no more NVIC registers
+			}
+		}
+		else
+		{
+			if(IRQNumber <= 31)
+			{
+				*(NVIC_ICER_0) |= (1 << IRQNumber );
+			}
+			else if(IRQNumber > 31 && IRQNumber <= 63)
+			{
+				//TODO - no need as in M0 architecture there are no more NVIC registers
+			}
+			else if(IRQNumber > 63 && IRQNumber <=95)
+			{
+				//TODO - no need as in M0 architecture there are no more NVIC registers
+			}
+		}
 }
 
 
@@ -346,7 +488,32 @@ void SPI_IRQPriorityConfig(uint8_t IRQNumber, uint32_t IRQPriority)
 
 void SPI_IRQHandling(SPI_Handle_t *pHandle)
 {
+	uint8_t temp1,temp2;
+	//check for TXE and TXEIE
+	temp1 = pHandle->pSPIx->SR & (SET << SPI_SR_TXE);
+	temp2 = pHandle->pSPIx->CR2 & (SET << SPI_CR2_TXEIE);
 
+	if (temp1 && temp2)
+	{
+		//TODO
+	}
+	//check for RXNE and RXNEIE
+	temp1 = pHandle->pSPIx->SR & (SET << SPI_SR_RXNE);
+	temp2 = pHandle->pSPIx->CR2 & (SET << SPI_CR2_RXEIE);
+
+	if(temp1 && temp2)
+	{
+		//TODO
+	}
+
+	//check for OVR (overrun flag)
+	temp1 = pHandle->pSPIx->SR & (SET << SPI_SR_OVR);			//check if overrun flag is set
+	temp2 = pHandle->pSPIx->CR2 & (SET << SPI_CR2_ERRIE);		//check if error detection reg is set
+
+	if(temp1 && temp2)
+	{
+		//TODO
+	}
 }
 
 /*
@@ -407,11 +574,11 @@ void SPI_SSIControl(SPI_RegDef_t *pSPIx, uint8_t EnorDi)
 
 
 /*
- * @fn 			- SPI_SSIControl
+ * @fn 			- SPI_SOEControl
  *
- * @brief		- SSI must be set to 1 in order the NSS pin
- * 				  is pulled to vcc. That way MSTR error flag
- * 				  does not occur.
+ * @brief		-
+ *
+ *
  *
  * @param[in]	-
  * @param[in]	-

@@ -32,8 +32,14 @@ typedef struct
 
 typedef struct
 {
-	SPI_RegDef_t *pSPIx;
-	SPI_Config_t SPIConfig;
+	SPI_RegDef_t 	*pSPIx;
+	SPI_Config_t 	SPIConfig;
+	uint8_t 		*pTxBuffer;
+	uint8_t			*pRxBuffer;
+	uint32_t		TxLen;
+	uint32_t		RxLen;
+	uint8_t			TxState;
+	uint8_t			RxState;
 }SPI_Handle_t;
 
 
@@ -65,9 +71,11 @@ void SPI_DeInit(SPI_Handle_t *pSPIx);
  */
 
 void SPI_SendData(SPI_RegDef_t *pSPIx, volatile uint8_t *pTxBuffer, uint32_t Len);
+void SPI_ReceiveData(SPI_RegDef_t *pSPIx, volatile uint8_t *pRxBuffer, uint32_t Len);
 
 
-void SPI_ReceiveData(SPI_RegDef_t *pSPIx, uint8_t *pRxBuffer, uint32_t Len);
+uint8_t SPI_SendDataIT(SPI_Handle_t *pSPIHandle,uint8_t *pTxBuffer, uint32_t Len);
+uint8_t SPI_ReceiveDataIT(SPI_Handle_t *pSPIHandle,uint8_t *pRxBuffer, uint32_t Len);
 
 uint8_t SPI_GetFlag(SPI_RegDef_t *pSPIx, uint32_t FlagName);
 
@@ -88,6 +96,7 @@ void SPI_IRQHandling(SPI_Handle_t *pHandle);
 void SPI_PeriphControl(SPI_RegDef_t *pSPIx, uint8_t EnorDi);
 void SPI_SSIControl(SPI_RegDef_t *pSPIx, uint8_t EnorDi);
 void SPI_SSOEControl(SPI_RegDef_t *pSPIx, uint8_t EnorDi);
+uint8_t SPI_VerifyResponse(uint8_t ackByte);
 
 
 /*
@@ -173,6 +182,15 @@ void SPI_SSOEControl(SPI_RegDef_t *pSPIx, uint8_t EnorDi);
 #define SPI_BUSY_FLAG						(1 << SPI_SR_BSY)		//masking details
 #define SPI_RXNE_FLAG						(1 << SPI_SR_RXNE)
 #define SPI_TXE_FLAG						(1 << SPI_SR_TXE )
+
+
+/*
+ * SPI application states (used in interrupts)
+ */
+
+#define SPI_READY							0
+#define	SPI_BUSY_IN_RX						1
+#define SPI_BUSY_IN_TX						2
 
 
 #endif /* INC_STM32F072TX_SPI_DRIVER_H_ */

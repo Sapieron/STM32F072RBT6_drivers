@@ -310,6 +310,8 @@ typedef struct
 #define IRQ_NO_EXTI0_1		5
 #define IRQ_NO_EXTI2_3		6
 #define IRQ_NO_EXTI4_15		7
+#define IRQ_SPI1			25
+#define IRQ_SPI2			26
 
 
 
@@ -372,8 +374,9 @@ typedef struct
 #define SPI_SR_FRLVL		9	//FIFO reception level - USES 2 BITFIELDS
 #define SPI_SR_FTLVL		11	//FIFO Transmission Level - USES 2 BITFIELDS
 
-
-
+/*
+ * SPI IRQ Numbers
+ */
 
 
 #define ENABLE 							1
